@@ -125,11 +125,14 @@ class NumpyNdarrayType(
     def _subtype(self, subshape: Tuple[Optional[int], ...]):
         if len(subshape) == 0:
             return python_type_from_np_string_repr(self.dtype)
-        return conlist(
-            self._subtype(subshape[1:]),
-            min_items=subshape[0],
-            max_items=subshape[0],
-        )
+        else:
+            if isinstance(subshape[0], int):
+                return conlist(
+                    self._subtype(subshape[1:]),
+                    min_items=subshape[0],
+                    max_items=subshape[0])
+            else:
+                return List[self._subtype(subshape[1:])]
 
     def get_model(self, prefix: str = "") -> Type[BaseModel]:
         # TODO: https://github.com/iterative/mlem/issues/33
@@ -148,7 +151,14 @@ class NumpyNdarrayType(
         return instance.tolist()
 
     def _check_shape(self, array, exc_type):
-        if tuple(array.shape)[1:] != self.shape[1:]:
+        if len(array.shape) != len(self.shape):
+            raise exc_type(
+                f"given array is of rank: {len(array.shape)}, expected: {len(self.shape)}"
+            )
+
+        array_shape = [None if expected_dim is None else array_dim for array_dim, expected_dim
+                       in zip(array.shape, self.shape)]
+        if tuple(array_shape) != self.shape:
             raise exc_type(
                 f"given array is of shape: {(None,) + tuple(array.shape)[1:]}, expected: {self.shape}"
             )
@@ -164,7 +174,7 @@ class NumpyNumberWriter(DataWriter):
     type: ClassVar[str] = "numpy_number"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         with storage.open(path) as (f, art):
             f.write(str(data.data).encode("utf-8"))
@@ -186,7 +196,7 @@ class NumpyNumberReader(DataReader):
             return self.data_type.copy().bind(data)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
@@ -197,7 +207,7 @@ class NumpyArrayWriter(DataWriter):
     type: ClassVar[str] = "numpy"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         with storage.open(path) as (f, art):
             np.savez_compressed(f, **{DATA_KEY: data.data})
@@ -219,6 +229,6 @@ class NumpyArrayReader(DataReader):
         return self.data_type.copy().bind(data)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError

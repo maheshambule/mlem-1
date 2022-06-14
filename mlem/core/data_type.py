@@ -18,7 +18,7 @@ from typing import (
 )
 
 import flatdict
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictInt, StrictStr
 from pydantic.main import create_model
 
 from mlem.core.artifacts import Artifacts, Storage
@@ -54,12 +54,12 @@ class DataType(ABC, MlemABC, WithRequirements):
 
     @abstractmethod
     def get_writer(
-        self, project: str = None, filename: str = None, **kwargs
+            self, project: str = None, filename: str = None, **kwargs
     ) -> "DataWriter":
         raise NotImplementedError
 
     def get_serializer(
-        self, **kwargs  # pylint: disable=unused-argument
+            self, **kwargs  # pylint: disable=unused-argument
     ) -> "DataSerializer":
         if isinstance(self, DataSerializer):
             return self
@@ -105,7 +105,7 @@ class UnspecifiedDataType(DataType, DataSerializer):
         return Requirements()
 
     def get_writer(
-        self, project: str = None, filename: str = None, **kwargs
+            self, project: str = None, filename: str = None, **kwargs
     ) -> "DataWriter":
         raise NotImplementedError
 
@@ -138,7 +138,7 @@ class DataReader(MlemABC, ABC):
 
     @abstractmethod
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
@@ -155,7 +155,7 @@ class DataWriter(MlemABC):
 
     @abstractmethod
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         raise NotImplementedError
 
@@ -205,7 +205,7 @@ class PrimitiveWriter(DataWriter):
     type: ClassVar[str] = "primitive"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         with storage.open(path) as (f, art):
             f.write(str(data.data).encode("utf-8"))
@@ -232,7 +232,7 @@ class PrimitiveReader(DataReader):
             return self.data_type.copy().bind(data)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
@@ -272,7 +272,7 @@ class ArrayWriter(DataWriter):
     type: ClassVar[str] = "array"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         if not isinstance(data, ArrayType):
             raise ValueError(
@@ -308,7 +308,7 @@ class ArrayReader(DataReader):
         return self.data_type.copy().bind(data_list)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
@@ -345,7 +345,7 @@ class _TupleLikeType(DataType, DataSerializer):
         )
 
     def get_writer(
-        self, project: str = None, filename: str = None, **kwargs
+            self, project: str = None, filename: str = None, **kwargs
     ) -> "DataWriter":
         return _TupleLikeWriter(**kwargs)
 
@@ -377,7 +377,7 @@ class _TupleLikeWriter(DataWriter):
     type: ClassVar[str] = "tuple_like"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         if not isinstance(data, _TupleLikeType):
             raise ValueError(
@@ -415,7 +415,7 @@ class _TupleLikeReader(DataReader):
         return self.data_type.copy().bind(data_list)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
@@ -458,7 +458,7 @@ class OrderedCollectionHook(DataHook):
             return ListType(items=[DataAnalyzer.analyze(o) for o in obj])
 
         if not py_types.intersection(
-            PrimitiveType.PRIMITIVES
+                PrimitiveType.PRIMITIVES
         ):  # py_types is guaranteed to be singleton set here
             items_types = [DataAnalyzer.analyze(o) for o in obj]
             first, *others = items_types
@@ -477,7 +477,7 @@ class DictType(DataType, DataSerializer, DataHook):
     """
 
     type: ClassVar[str] = "dict"
-    item_types: Dict[str, DataType]
+    item_types: Dict[Union[StrictInt, StrictStr], DataType]
 
     @classmethod
     def is_object_valid(cls, obj: Any) -> bool:
@@ -489,12 +489,15 @@ class DictType(DataType, DataSerializer, DataHook):
             item_types={k: DataAnalyzer.analyze(v) for (k, v) in obj.items()}
         )
 
+    def get_item_type(self, k):
+        return self.item_types[k]
+
     def deserialize(self, obj):
         self._check_type_and_keys(obj, DeserializationError)
         return {
-            k: self.item_types[k]
-            .get_serializer()
-            .deserialize(
+            k: self.get_item_type(k)
+                .get_serializer()
+                .deserialize(
                 v,
             )
             for k, v in obj.items()
@@ -503,7 +506,7 @@ class DictType(DataType, DataSerializer, DataHook):
     def serialize(self, instance: dict):
         self._check_type_and_keys(instance, SerializationError)
         return {
-            k: self.item_types[k].get_serializer().serialize(v)
+            k: self.get_item_type(k).get_serializer().serialize(v)
             for k, v in instance.items()
         }
 
@@ -521,13 +524,13 @@ class DictType(DataType, DataSerializer, DataHook):
         )
 
     def get_writer(
-        self, project: str = None, filename: str = None, **kwargs
+            self, project: str = None, filename: str = None, **kwargs
     ) -> "DataWriter":
         return DictWriter(**kwargs)
 
     def get_model(self, prefix="") -> Type[BaseModel]:
         kwargs = {
-            k: (v.get_serializer().get_model(prefix + k + "_"), ...)
+            str(k): (v.get_serializer().get_model(prefix + str(k) + "_"), ...)
             for k, v in self.item_types.items()
         }
         return create_model(prefix + "DictType", **kwargs)  # type: ignore
@@ -537,7 +540,7 @@ class DictWriter(DataWriter):
     type: ClassVar[str] = "dict"
 
     def write(
-        self, data: DataType, storage: Storage, path: str
+            self, data: DataType, storage: Storage, path: str
     ) -> Tuple[DataReader, Artifacts]:
         if not isinstance(data, DictType):
             raise ValueError(
@@ -545,14 +548,15 @@ class DictWriter(DataWriter):
             )
         res = {}
         readers = {}
-        for (key, dtype) in data.item_types.items():
-            dtype_reader, art = dtype.get_writer().write(
-                dtype.copy().bind(data.data[key]),
+        for (key, val) in data.data.items():
+            dtype_reader, art = data.get_item_type(key).get_writer().write(
+                data.get_item_type(key).copy().bind(val),
                 storage,
-                posixpath.join(path, key),
+                posixpath.join(path, str(key)),
             )
-            res[key] = art
+            res[str(key)] = art
             readers[key] = dtype_reader
+
         return DictReader(data_type=data, item_readers=readers), dict(
             flatdict.FlatterDict(res, delimiter="/")
         )
@@ -561,22 +565,143 @@ class DictWriter(DataWriter):
 class DictReader(DataReader):
     type: ClassVar[str] = "dict"
     data_type: DictType
-    item_readers: Dict[str, DataReader]
+    item_readers: Dict[Union[StrictInt, StrictStr], DataReader]
 
     def read(self, artifacts: Artifacts) -> DataType:
         artifacts = flatdict.FlatterDict(artifacts, delimiter="/")
         data_dict = {}
         for (key, dtype_reader) in self.item_readers.items():
-            v_data_type = dtype_reader.read(artifacts[key])  # type: ignore
+            v_data_type = dtype_reader.read(artifacts[str(key)])  # type: ignore
             data_dict[key] = v_data_type.data
         return self.data_type.copy().bind(data_dict)
 
     def read_batch(
-        self, artifacts: Artifacts, batch_size: int
+            self, artifacts: Artifacts, batch_size: int
     ) -> Iterator[DataType]:
         raise NotImplementedError
 
 
+class DictSymbolicType(DataType, DataSerializer, DataHook):
+    """
+    Symbolic DataType for dict
+    """
+
+    type: ClassVar[str] = "dict"
+
+    key_type: DataType
+    value_type: DataType
+
+    @classmethod
+    def is_object_valid(cls, obj: Any) -> bool:
+        return False  # Dataset analysis is not done for symbolic type
+
+    @classmethod
+    def process(cls, obj: Any, **kwargs) -> "DictSymbolicType":
+        return DictSymbolicType(
+            key_type=DataAnalyzer.analyze(next(iter(obj.keys()))),
+            value_type=DataAnalyzer.analyze(next(iter(obj.values())))
+        )
+
+    def deserialize(self, obj):
+        self._check_type_and_keys(obj, DeserializationError)
+        return {
+            self.key_type
+                .get_serializer()
+                .deserialize(
+                k,
+            )
+            : self.value_type
+                .get_serializer()
+                .deserialize(
+                v,
+            )
+            for k, v in obj.items()
+        }
+
+    def serialize(self, instance: dict):
+        self._check_type_and_keys(instance, SerializationError)
+        if self.key_type == PrimitiveType and self.value_type == PrimitiveType:
+            return instance
+        else:
+            return {
+                self.key_type
+                    .get_serializer()
+                    .serialize(
+                    k,
+                )
+                : self.value_type
+                    .get_serializer()
+                    .serialize(
+                    v,
+                )
+                for k, v in instance.items()
+            }
+
+    def _check_type_and_keys(self, obj, exc_type):
+        self.check_type(obj, dict, exc_type)
+        obj_type = self.process(obj)
+        obj_types = (obj_type.key_type, obj_type.value_type)
+        expected_types = (self.key_type, self.value_type)
+        if obj_types != expected_types:
+            raise exc_type(
+                f"given dict has type: {obj_types}, expected: {expected_types}"
+            )
+
+        # TODO - should we check for type of all items of dict?
+
+    def get_requirements(self) -> Requirements:
+        return sum(
+            [self.key_type.get_requirements(), self.value_type.get_requirements()],
+            Requirements.new()
+        )
+
+    def get_writer(
+            self, project: str = None, filename: str = None, **kwargs
+    ) -> "DictSymbolicTypeWriter":
+        return DictSymbolicTypeWriter(**kwargs)
+
+    def get_model(self, prefix="") -> Type[BaseModel]:
+        field_type = (
+            Dict[self.key_type.get_serializer().get_model(prefix), self.value_type_type.get_serializer().get_model(
+                prefix)],
+            ...)
+        return create_model(prefix + "DictType", __root__=field_type)  # type: ignore
+
+
+class DictSymbolicTypeWriter(DataWriter):
+    type: ClassVar[str] = "dict"
+
+    def write(
+            self, data: DataType, storage: Storage, path: str
+    ) -> Tuple[DataReader, Artifacts]:
+        if not isinstance(data, DictSymbolicType):
+            raise ValueError(
+                f"expected data to be of DictSymbolicTypeWriter, got {type(data)} instead"
+            )
+        import json
+        with storage.open(path) as (f, art):
+            json.dump(data.get_serializer().serialize(data.data), f)
+        return DictSymbolicTypeReader(data_type=data), {DataWriter.art_name: art}
+
+
+class DictSymbolicTypeReader(DataReader):
+    type: ClassVar[str] = "dict"
+    data_type: DictSymbolicType
+
+    def read(self, artifacts: Artifacts) -> DataType:
+        if DataWriter.art_name not in artifacts:
+            raise ValueError(
+                f"Wrong artifacts {artifacts}: should be one {DataWriter.art_name} file"
+            )
+        import json
+        with artifacts[DataWriter.art_name].open() as f:
+            data = json.load(f)
+        return self.data_type.copy().bind(data)
+
+    def read_batch(
+            self, artifacts: Artifacts, batch_size: int
+    ) -> Iterator[DataType]:
+        raise NotImplementedError
 #
 #
 # class BytesDataType(DataType):

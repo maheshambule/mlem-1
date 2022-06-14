@@ -67,25 +67,6 @@ class SimplePickleIO(ModelIO):
             return pickle.load(f)
 
 
-class ModelProtoIO(ModelIO):
-    """IO for ONNX model object"""
-
-    type: ClassVar[str] = "model_proto"
-
-    def dump(self, storage: Storage, path: str, model) -> Artifacts:
-        with storage.open(path) as (f, art):
-            f.write(model.model.SerializeToString())
-        return {self.art_name: art}
-
-    def load(self, artifacts: Artifacts):
-        from mlem.contrib.onnx import ONNXWrappedModel
-
-        if len(artifacts) != 1:
-            raise ValueError("Invalid artifacts: should be one .onx file")
-        with artifacts[self.art_name].open() as f:
-            return ONNXWrappedModel(f)
-
-
 class Argument(BaseModel):
     """Function argument descriptor"""
 
@@ -202,6 +183,11 @@ class Signature(BaseModel, WithRequirements):
             varkw=argspec.varkw,
             varargs=argspec.varargs,
         )
+
+    @classmethod
+    def from_onnx_graph(self,  onnx_graph):
+        return DataAnalyzer.analyze(onnx_graph)
+
 
     def has_unspecified_args(self):
         return isinstance(self.returns, UnspecifiedDataType) or any(

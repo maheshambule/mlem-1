@@ -246,3 +246,63 @@ def test_dict_source():
     assert artifacts["1/data"].uri.endswith("data/1")
     assert artifacts["2/data"].uri.endswith("data/2")
     assert artifacts["3/1/data"].uri.endswith("data/3/1")
+
+
+def test_dict_key_int_type():
+    d_value = {"1": 1.5, 2: "a", "3": {1: False}}
+    data_type = DataType.create(d_value)
+
+    assert isinstance(data_type, DictType)
+    payload = {'item_types': {'1': {'ptype': 'float', 'type': 'primitive'},
+                              2: {'ptype': 'str', 'type': 'primitive'},
+                              '3': {'item_types': {1: {'ptype': 'bool', 'type': 'primitive'}},
+                                    'type': 'dict'}},
+               'type': 'dict'}
+    assert data_type.dict() == payload
+    dt2 = parse_obj_as(DictType, payload)
+    assert dt2 == data_type
+    assert d_value == data_type.serialize(d_value)
+    assert d_value == data_type.deserialize(d_value)
+    assert data_type.get_model().__name__ == "DictType"
+    assert data_type.get_model().schema() == {
+        'title': 'DictType',
+        'type': 'object',
+        'properties': {
+            '1': {'title': '1', 'type': 'number'},
+            '2': {'title': '2', 'type': 'string'},
+            '3': {'$ref': '#/definitions/3_DictType'}
+        },
+        'required': ['1', '2', '3'],
+        'definitions': {
+            '3_DictType': {
+                'title': '3_DictType',
+                'type': 'object',
+                'properties': {
+                    '1': {'title': '1', 'type': 'boolean'}
+                },
+                'required': ['1']
+            }
+        }
+    }
+
+
+def test_dict_key_int_type_read_write():
+    d_value = {"1": 1.5, 2: "a", "3": {1: False}}
+    data_type = DataType.create(d_value)
+
+    def custom_assert(x, y):
+        assert x == y
+        assert len(x) == len(y)
+        assert isinstance(x, dict)
+        assert isinstance(y, dict)
+
+    artifacts = data_write_read_check(
+        data_type,
+        reader_type=DictReader,
+        custom_assert=custom_assert,
+    )
+
+    assert list(artifacts.keys()) == ["1/data", "2/data", "3/1/data"]
+    assert artifacts["1/data"].uri.endswith("data/1")
+    assert artifacts["2/data"].uri.endswith("data/2")
+    assert artifacts["3/1/data"].uri.endswith("data/3/1")

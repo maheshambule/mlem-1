@@ -105,6 +105,31 @@ def test_ndarray(nat):
     assert (nat.get_serializer().deserialize(n_payload) == value).all()
 
 
+def test_ndarray_dynamic():
+    nat = NumpyNdarrayType(shape=(None, 2, None, 3), dtype="int")
+    assert nat.shape == (None, 2, None, 3)
+    assert python_type_from_np_string_repr(nat.dtype) == int
+    assert nat.get_requirements().modules == ["numpy"]
+    payload = nat.json()
+    nat2 = parse_obj_as(DataType, loads(payload))
+    assert nat == nat2
+    assert nat.get_model().__name__ == nat2.get_model().__name__
+    assert nat.get_model().schema() == {
+        "title": "NumpyNdarray",
+        "type": "array",
+        "items": {
+            "type": "array",
+            "items": {"type": "array", "items" :
+                {"type": "array", "items" : {"type" :"integer"},  "minItems": 3,  "maxItems": 3}},
+            "minItems": 2,
+            "maxItems": 2,
+        },
+    }
+
+    value = np.array([[[[1, 2, 3], [3, 4, 5]], [[1, 2, 3], [3, 4, 5]]]])
+    n_payload = nat.get_serializer().serialize(value)
+    assert (nat.get_serializer().deserialize(n_payload) == value).all()
+
 @pytest.mark.parametrize(
     "obj",
     [
